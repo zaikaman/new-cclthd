@@ -351,3 +351,4 @@ SGU-Academic-MCP/
 
 Dự án được phát hành theo giấy phép [MIT License](LICENSE).
 Tự do sử dụng, chỉnh sửa và tích hợp cho các mục đích học tập và nghiên cứu cá nhân.
+https://github.com/zaikaman/new-cclthd

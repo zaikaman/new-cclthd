@@ -1,0 +1,157 @@
+HƯỚNG DẪN VẤN ĐÁP ĐỀ THỰC HÀNH SỐ 12
+======================================
+
+1. CÁC FILE CẦN MỞ KHI TRÌNH BÀY
+
+- my_mcp_server.py chứa bài giải. Dòng 8 tạo MCPServer tên my_academic_server.
+  Phần A đăng ký calculate_tuition (dòng 11), resource chuẩn tốt nghiệp (dòng 29),
+  exam_guide (dòng 38) và check_academic_warning (dòng 49). Phần B đăng ký
+  plan_weekly_routine (dòng 57).
+- exam.py chạy các ca mẫu của hai phần. Dòng 13 gọi tool, dòng 26 lấy văn bản
+  prompt, dòng 34 bắt đầu main(), dòng 44 đọc resource, dòng 58 in Phần B.
+- test_mcp.py là script kiểm tra phụ có sẵn trong workspace, truy cập các manager
+  nội bộ của SDK. README.md có thêm một dòng liên kết repo GitHub. Khi demo theo
+  đề, mở và chạy exam.py để dùng các phương thức công khai của MCPServer.
+
+Đứng ở thư mục new-cclthd, dùng Python 3.12 và MCP SDK từ 2.2.0. Nếu môi trường
+chưa cài SDK, có thể cài đúng bản đã kiểm chứng rồi chạy bài bằng hai lệnh sau.
+
+    python -m pip install "mcp==2.2.0"
+    python -X utf8 exam.py
+
+Bài chạy với dữ liệu minh họa trong cùng tiến trình Python. Khi sửa đầu vào
+trong exam.py, cập nhật cả nhãn print() để kết quả trên màn hình dễ đối chiếu.
+
+
+2. CÁCH GIẢI THÍCH LUỒNG CODE
+
+Hỏi — Khi chạy exam.py, các chức năng được đăng ký lúc nào?
+Đáp — Khi exam.py import server từ my_mcp_server.py, Python chạy các decorator
+@server.tool, @server.resource và @server.prompt. Mỗi decorator đăng ký một hàm
+với tên hoặc URI tương ứng. Sau đó asyncio.run(main()) chạy các ca mẫu. Điều kiện
+if __name__ == "__main__" giúp main() chỉ chạy khi mở exam.py như một script.
+
+Hỏi — Tool, resource và prompt có vai trò gì trong bài này?
+Đáp — Tool nhận tham số và trả dữ liệu tính được. Resource cung cấp văn bản tĩnh
+theo URI. Prompt trả hướng dẫn bằng văn bản để trợ lý dùng khi lập kế hoạch.
+Ba cách truy cập lần lượt là await server.call_tool(name, args),
+await server.read_resource(uri) và await server.get_prompt(name, args).
+Các phương thức này chạy bất đồng bộ, nên exam.py gọi chúng bằng await trong main().
+
+Hỏi — exam.py lấy và trình bày kết quả như thế nào?
+Đáp — Tool trả CallToolResult. Hàm call_tool() lấy result.content[0].text,
+dùng json.loads() để đọc JSON rồi json.dumps(..., ensure_ascii=False) để in JSON
+với tiếng Việt dễ đọc. Với resource, main() lấy mục đầu tiên và in mime_type
+cùng content. Với prompt, get_prompt_text() lấy result.messages[0].content.text.
+
+Hỏi — Vì sao credits=0 trả hop_le=false còn credits="ba" báo ToolError?
+Đáp — SDK kiểm tra kiểu trước khi gọi hàm. StrictInt yêu cầu số nguyên và
+StrictFloat chấp nhận số thực hoặc số nguyên cho GPA. Chuỗi "ba" bị SDK từ chối.
+Số 0 qua được bước kiểm tra kiểu, rồi hàm phát hiện giá trị ngoài miền cho phép.
+exam.py in "ToolError (invalid params)" cho ca sai tham số. UnexpectedToolError
+được ném lại để thấy lỗi phát sinh trong quá trình thực thi tool.
+
+
+3. PHẦN A — GIẢI THÍCH TỪNG TODO VÀ THỬ ĐỔI DỮ LIỆU
+
+A1. calculate_tuition
+
+credits là số tín chỉ bắt buộc. fee_per_credit là đơn giá tùy chọn, mặc định
+520_000. Cả hai phải lớn hơn 0. Hàm nhân hai số nguyên để tính tong_hoc_phi.
+f"{total:,}" chèn dấu phẩy phân cách hàng nghìn, rồi replace(",", ".") đổi sang
+dấu chấm. Kết quả có tong_hoc_phi dạng số và dinh_dang dạng chuỗi kèm " VNĐ".
+
+    {"credits": 3}                                    → 1.560.000 VNĐ
+    {"credits": 4}                                    → 2.080.000 VNĐ
+    {"credits": 17, "fee_per_credit": 600000}          → 10.200.000 VNĐ
+    {"credits": 18, "fee_per_credit": 550000}          → 9.900.000 VNĐ
+    {"credits": 0}, {"credits": -2}                   → hop_le=false
+    {"credits": 3, "fee_per_credit": 0}                → hop_le=false
+    {"credits": 3, "fee_per_credit": -1}               → hop_le=false
+    {}, {"credits": "3"}, {"credits": 3.5}             → ToolError
+
+Ca hop_le=false có thông báo "Giá trị phải lớn hơn 0.". Nếu thầy đổi đơn giá
+của một ca, truyền fee_per_credit trong tham số. Nếu thầy đổi mặc định cho mọi
+ca bỏ đơn giá, sửa 520_000 trong chữ ký hàm. Ví dụ đổi mặc định thành 550_000
+thì 4 tín chỉ sẽ ra 2.200.000 VNĐ. Khi truyền JSON, viết 550000.
+
+A2. Resource academic://graduation/standards
+
+Decorator chứa URI, tên "Chuẩn tốt nghiệp" và MIME type text/plain.
+get_graduation_standards() trả văn bản minh họa gồm tối thiểu 152 tín chỉ, GPA
+từ 2.00, VSTEP Bậc 3 hoặc tương đương, hoàn thành giáo dục thể chất và quốc phòng
+- an ninh. Đọc lại bằng await server.read_resource(GRADUATION_STANDARDS_URI).
+
+- Thầy đổi chuẩn từ 152 thành 150 tín chỉ → sửa số trong chuỗi trả về, chạy lại
+  và đối chiếu văn bản nhận được.
+- Thầy đổi địa chỉ resource → sửa GRADUATION_STANDARDS_URI. Decorator và exam.py
+  dùng chung hằng số đó. Thử đọc URI mới để kiểm tra.
+
+A3. Prompt exam_guide
+
+Prompt hướng dẫn hỏi danh sách môn thi, số ngày còn lại và thời gian rảnh mỗi
+ngày, rồi lập bảng ôn theo ưu tiên có mốc kiểm tra. subject: str | None = None
+là tham số tùy chọn. if subject quyết định có thêm câu ưu tiên hay không.
+
+    {}                                      → hướng dẫn chung
+    {"subject": "Cấu trúc dữ liệu"}          → thêm "Ưu tiên môn: Cấu trúc dữ liệu."
+    {"subject": "Cơ sở dữ liệu"}             → thêm "Ưu tiên môn: Cơ sở dữ liệu."
+    {"subject": ""}                           → hướng dẫn chung
+
+Để đổi môn trong demo, sửa giá trị subject ở vòng for gọi exam_guide trong
+exam.py. Nếu thầy yêu cầu bỏ khoảng trắng ở hai đầu, chuẩn hóa subject bằng
+(subject or "").strip() trước khi kiểm tra.
+
+A4. check_academic_warning
+
+Hàm kiểm tra miền đầu vào trước. GPA hợp lệ từ 0 đến 4, gồm cả 0 và 4. Số tín
+chỉ nợ phải từ 0 trở lên. Với đầu vào hợp lệ, biểu thức
+gpa < 1.2 or failed_credits > 20 dùng phép HOẶC. Chỉ một vế đúng là đủ cảnh báo.
+
+    GPA 1.00, nợ 10  → hop_le=true,  canh_bao=true  (GPA thấp)
+    GPA 1.19, nợ  0  → hop_le=true,  canh_bao=true  (sát ngưỡng GPA)
+    GPA 1.20, nợ 20  → hop_le=true,  canh_bao=false (cả hai đúng ngưỡng)
+    GPA 2.80, nợ  0  → hop_le=true,  canh_bao=false
+    GPA 2.80, nợ 21  → hop_le=true,  canh_bao=true  (nợ vượt ngưỡng)
+    GPA 0.00, nợ  0  → hop_le=true,  canh_bao=true  (GPA 0 hợp lệ)
+    GPA 4.00, nợ  0  → hop_le=true,  canh_bao=false (GPA 4 hợp lệ)
+    GPA -1,   nợ  0  → hop_le=false (ngoài miền GPA)
+    GPA 4.01, nợ 50  → hop_le=false (kiểm tra miền trước ngưỡng cảnh báo)
+    GPA 2.80, nợ -1  → hop_le=false (nợ tín chỉ âm)
+
+Ca ngoài miền trả thông báo "Dữ liệu không hợp lệ.". Nếu truyền failed_credits
+là chuỗi "21", SDK báo ToolError. Để thêm ca thử, thêm cặp (gpa, failed_credits)
+vào vòng for cảnh báo trong exam.py. Nếu thầy đổi điều kiện thành nợ từ 20 tín
+chỉ trở lên, sửa > 20 thành >= 20 và thử ba ca nợ 19, 20, 21 với GPA 2.8.
+Kết quả sau khi đổi lần lượt là false, true, true.
+
+
+4. PHẦN B — PROMPT plan_weekly_routine
+
+Prompt hướng dẫn hỏi các môn học, hạn nộp bài và thời gian rảnh trong tuần,
+sau đó lập lịch theo ngày để cân bằng học và nghỉ. target_hours_per_day có kiểu
+str | None, mặc định None. Khi có chuỗi khác rỗng, hàm chèn câu mục tiêu trước
+khi nối câu hỏi điều chỉnh vào cuối.
+
+    {}                                → hướng dẫn chung + câu hỏi điều chỉnh
+    {"target_hours_per_day": "3"}     → thêm "Mục tiêu: 3 giờ/ngày."
+    {"target_hours_per_day": "2.5"}   → thêm "Mục tiêu: 2.5 giờ/ngày."
+    {"target_hours_per_day": ""}      → hướng dẫn chung + câu hỏi điều chỉnh
+
+Mọi kết quả đều kết thúc bằng "Bạn muốn điều chỉnh phần nào của kế hoạch?".
+Nếu thầy đổi mục tiêu demo thành 2.5 giờ, sửa "3" thành "2.5" trong vòng for
+Phần B của exam.py. Giữ dấu ngoặc kép vì get_prompt() nhận giá trị tham số dạng
+chuỗi. Hãy chỉ ra vị trí câu mục tiêu và câu hỏi cuối khi đối chiếu.
+
+
+5. CÂU MẪU ĐỂ DEMO QUA CHAT
+
+Dùng các câu sau trong chat đã kết nối với Native MCP của my_academic_server.
+
+- Gọi tool calculate_tuition với credits=18 và fee_per_credit=550000. In JSON trả về.
+- Gọi tool check_academic_warning với gpa=1.2, failed_credits=20, rồi gọi lại với
+  gpa=1.2, failed_credits=21. In kết quả của từng lượt.
+- Đọc resource academic://graduation/standards. In MIME type và nội dung.
+- Lấy prompt exam_guide với subject="Cơ sở dữ liệu". In nguyên văn prompt.
+- Lấy prompt plan_weekly_routine lần đầu với {}, lần hai với
+  {"target_hours_per_day": "3"}. In nguyên văn cả hai và kiểm tra câu hỏi cuối.
